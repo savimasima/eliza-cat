@@ -1,9 +1,10 @@
+/* ---------- generic layout ---------- */
 html, body{
   margin:0;
   height:100%;
-  background:#9ee8ff;                        
-  font-family:system-ui, Arial, Helvetica, sans-serif;
-  touch-action:none;                           
+  background:#9ee8ff;                 /* sky */
+  font-family:system-ui, Arial, sans-serif;
+  touch-action:none;
 }
 
 #gameCanvas{
@@ -13,6 +14,7 @@ html, body{
   max-height:100vh;
 }
 
+/* mobile hint */
 #hint{
   position:fixed;
   bottom:8px; left:0; right:0;
@@ -24,12 +26,13 @@ html, body{
 }
 @media (min-width:768px){ #hint{display:none;} }
 
+/* ---------- start overlay ---------- */
 #overlay{
   position:fixed; inset:0;
   display:flex; align-items:center; justify-content:center;
   background:rgba(0,0,0,.35);
   backdrop-filter:blur(6px);
-  transition:opacity .3s ease;
+  transition:opacity .3s;
   z-index:999;
 }
 #overlay.hidden{pointer-events:none; opacity:0;}
@@ -44,10 +47,15 @@ html, body{
 }
 
 .panel h1{
-  margin:0 0 20px;
+  margin:0 0 18px;
   font-size:22px;
-  letter-spacing:.5px;
   font-family:'Press Start 2P', monospace;
+}
+
+.panel .rules{
+  margin:0 0 18px;
+  font-size:14px;
+  line-height:1.4;
 }
 
 .panel label{
@@ -74,15 +82,15 @@ html, body{
 .panel button{
   width:100%;
   padding:12px 0;
-  margin-top:4px;
   font-size:16px; font-weight:600;
-  color:#fff; background:#db3bff;
+  color:#fff; background:#24a337;
   border:none; border-radius:8px;
   cursor:pointer;
   transition:background .2s;
 }
-.panel button:hover{ background:#e665d6; }
+.panel button:hover{ background:#5bff45; }
 
+/* ---------- HUD ---------- */
 #hud{
   position:fixed; top:6px; left:6px; right:6px;
   display:flex; justify-content:space-between;
