@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Cat Platformer – Level 1</title>
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+html,body{margin:0;height:100%;background:#9ee8ff;touch-action:none;font-family:system-ui}
+#gameCanvas{display:block;width:100%;height:auto;max-height:100vh}
+#hint{position:fixed;bottom:8px;left:0;right:0;text-align:center;font-size:14px;
+      color:#fff;text-shadow:0 0 4px #0009;pointer-events:none}
+
+/*––– start overlay –––*/
+#overlay{position:fixed;inset:0;background:#000b;display:flex;align-items:center;
+         justify-content:center;z-index:999}
+#overlay.hidden{display:none}
+#panel{background:#ffffff;border-radius:8px;padding:24px;box-shadow:0 4px 16px #0006;
+       width:280px;max-width:90%}
+#panel h1{margin:0 0 16px;font-size:20px;text-align:center}
+#panel label{display:block;margin-bottom:12px;font-size:14px}
+#panel input[type=text]{width:100%;padding:6px;border:1px solid #ccc;border-radius:4px}
+#panel input[type=color]{width:48px;height:32px;border:none;padding:0}
+#panel button{display:block;width:100%;margin-top:16px;padding:10px 0;border:none;
+              border-radius:4px;background:#3ba9ff;color:#fff;font-size:16px;cursor:pointer}
+#panel button:hover{background:#3293e0}
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas" width="960" height="540"></canvas>
+<div id="hint">Tap to jump • Hold left / right side to move</div>
+
+<!--––– welcome overlay –––-->
+<div id="overlay">
+  <div id="panel">
+    <h1>Welcome!</h1>
+    <label>Name<br><input id="playerName" type="text" placeholder="Your name"></label>
+    <label>Cat colour<br><input id="catColor" type="color" value="#ff9c55"></label>
+    <button id="startBtn">Start</button>
+  </div>
+</div>
+
+<script>
+(()=>{/* IIFE to avoid globals */
+
+/*––––– level layout –––––*/
+const TILE = 32;                   // base tile size in px (at 1×)
+const level = {
+  gravity: 0.6,
+  accel:   0.6,                    // horizontal acceleration
+  maxSpeed:4.2,
+  friction:0.15,                   // applied each frame if no input
+  jumpStrength: 12,
+  edgeSlack: 4,                    // px tolerance for edge slide
+  platforms:[                      // x,y,w,h in tiles
+    [0,15,60,2],
+    [12,12,4,1],[20,10,4,1],[32,8,4,1],
+    [40,6,4,1],[48,4,4,1]
+  ],
+  cactus:[ [18,13,1,2],[44,5,1,2] ],
+  water: [ [8,16,4,1],[24,16,6,1] ],
+  goal:  [54,3,3,3]
+};
+
+/*––––– canvas + scaling –––––*/
+const canvas = document.getElementById('gameCanvas');
+const ctx    = canvas.getContext('2d');
+let scale=1;
+function resize(){
+  const ratio = canvas.height/canvas.width;
+  canvas.width  = innerWidth;
+  canvas.height = innerWidth*ratio;
+  scale = canvas.width/(TILE*60);
+}
+addEventListener('resize',resize);resize();
+
+/*––––– welcome overlay –––––*/
+let playerName='Kitty', catColor='#ff9c55', gamePaused=true;
+document.getElementById('startBtn').onclick = ()=> {
+  playerName = document.getElementById('playerName').value.trim()||'Kitty';
+  catColor   = document.getElementById('catColor').value;
+  generateSprites(catColor);
+  document.getElementById('overlay').classList.add('hidden');
+  gamePaused=false;
+};
+
+/*––––– sprite generation –––––*/
+const sprites = {cat:{idle:null,run:[],jump:null}, tiles:{}};
+function makeImage(w,h,draw){
+  const off=document.createElement('canvas');off.width=w;off.height=h;
+  const c=off.getContext('2d');draw(c);const img=new Image();img.src=off.toDataURL();return img;
+}
+function generateCatFrames(color){
+  const frames=[];
+  for(let f=0;f<4;f++){
+    frames.push(makeImage(TILE,TILE,c=>{
+      drawCatBase(c,color);
+      // animate legs
+      c.fillStyle=darker(color,0.2);
+      const legY = TILE*0.7;
+      const shift=f%2===0?TILE*0.15:-TILE*0.15;
+      c.fillRect(TILE*0.2+shift,legY,TILE*0.15,TILE*0.3);
+      c.fillRect(TILE*0.65-shift,legY,TILE*0.15,TILE*0.3);
+    }));
+  }
+  const idle = makeImage(TILE,TILE,c=>drawCatBase(c,color));
+  const jump = makeImage(TILE,TILE,c=>{
+    drawCatBase(c,color);
+    c.fillStyle=darker(color,0.2);
+    c.fillRect(TILE*0.35,TILE*0.55,TILE*0.15,TILE*0.35);
+    c.fillRect(TILE*0.55,TILE*0.55,TILE*0.15,TILE*0.35);
+  });
+  return {idle,run:frames,jump};
+}
+function drawCatBase(c,color){
+  /* body */
+  c.fillStyle=color;
+  c.fillRect(TILE*0.1,TILE*0.2,TILE*0.8,TILE*0.6);
+  /* ears */
+  c.beginPath();c.moveTo(TILE*0.2,TILE*0.2);c.lineTo(TILE*0.3,0);c.lineTo(TILE*0.4,TILE*0.2);c.closePath();c.fill();
+  c.beginPath();c.moveTo(TILE*0.8,TILE*0.2);c.lineTo(TILE*0.7,0);c.lineTo(TILE*0.6,TILE*0.2);c.closePath();c.fill();
+  /* eyes */
+  c.fillStyle='#000';c.fillRect(TILE*0.35,TILE*0.35,TILE*0.1,TILE*0.1);
+  c.fillRect(TILE*0.55,TILE*0.35,TILE*0.1,TILE*0.1);
+}
+function darker(hex,percent){
+  let col=parseInt(hex.slice(1),16);
+  let r=(col>>16),g=(col>>8&0xff),b=(col&0xff);
+  r=Math.max(0,r* (1-percent));g=Math.max(0,g*(1-percent));b=Math.max(0,b*(1-percent));
+  return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);
+}
+function generateTileSprites(){
+  sprites.tiles.ground = makeImage(TILE,TILE,c=>{
+    c.fillStyle='#a66c27';c.fillRect(0,0,TILE,TILE);
+    c.fillStyle='#8c501c';for(let i=0;i<4;i++)c.fillRect(i*8,24,8,8);
+  });
+  sprites.tiles.brick = makeImage(TILE,TILE,c=>{
+    c.fillStyle='#c97b30';c.fillRect(0,0,TILE,TILE);
+    c.fillStyle='#9e5d1f';c.fillRect(0,16,TILE,4);
+    c.fillRect(0,0,4,TILE);c.fillRect(12,0,4,TILE);c.fillRect(24,0,4,TILE);
+  });
+  sprites.tiles.water = makeImage(TILE,TILE,c=>{
+    c.fillStyle='#3ba9ff';c.fillRect(0,0,TILE,TILE);
+    c.fillStyle='#ffffff33';for(let i=0;i<4;i++)c.fillRect(i*8,8,8,4);
+  });
+  sprites.tiles.cactus = makeImage(TILE,TILE*2,c=>{
+    c.fillStyle='#2db84d';c.fillRect(8,8,16,48);
+    c.fillRect(0,24,8,16);c.fillRect(24,24,8,16);
+  });
+}
+function generateSprites(col){sprites.cat=generateCatFrames(col);}
+generateTileSprites(); // pre-create static environment sprites
+
+/*––––– player –––––*/
+const player={
+  x:TILE*2,y:TILE*10,w:TILE*0.8,h:TILE*0.9,
+  vx:0,vy:0,onGround:false,frame:0,frameTimer:0
+};
+function resetPlayer(){
+  player.x=TILE*2;player.y=TILE*10;player.vx=player.vy=0;
+}
+
+/*––––– input –––––*/
+const keys={};addEventListener('keydown',e=>{
+  if(['ArrowLeft','ArrowRight','Space'].includes(e.code))e.preventDefault();
+  keys[e.code]=true;
+});addEventListener('keyup',e=>keys[e.code]=false);
+let touchLeft=false,touchRight=false,lastTap=0;
+function touchHandler(e){
+  e.preventDefault();
+  const rect=canvas.getBoundingClientRect();
+  [...e.changedTouches].forEach(t=>{
+    const x=t.clientX-rect.left;
+    if(e.type==='touchstart'){
+      const now=Date.now();if(now-lastTap<300)jump();lastTap=now;
+      if(x<canvas.width/2)touchLeft=true;else touchRight=true;
+    }
+    if(e.type==='touchend'||e.type==='touchcancel'){
+      if(x<canvas.width/2)touchLeft=false;else touchRight=false;
+    }
+  });
+}
+['touchstart','touchend','touchcancel'].forEach(ev=>canvas.addEventListener(ev,touchHandler));
+function jump(){if(player.onGround){player.vy=-level.jumpStrength;player.onGround=false;}}
+
+/*––––– collision helpers –––––*/
+function rect(x,y,w,h){return {x,y,w,h};}
+function intersect(a,b){
+  return a.x<b.x+b.w && a.x+a.w>b.x && a.y<b.y+b.h && a.y+a.h>b.y;
+}
+
+/*––––– main loop –––––*/
+function loop(){
+  if(!gamePaused){
+    handleInput();
+    updatePhysics();
+  }
+  render();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+/*––––– input processing –––––*/
+function handleInput(){
+  let dir=0;
+  if(keys.ArrowLeft||touchLeft)dir=-1;
+  else if(keys.ArrowRight||touchRight)dir=1;
+
+  if(dir!==0){
+    player.vx += dir*level.accel;
+    if(Math.abs(player.vx)>level.maxSpeed)
+      player.vx=dir*level.maxSpeed;
+  }else{
+    player.vx *= (1-level.friction);
+    if(Math.abs(player.vx)<0.05)player.vx=0;
+  }
+  if(keys.Space)jump();
+}
+
+/*––––– physics + collisions –––––*/
+function updatePhysics(){
+  player.vy += level.gravity;
+
+  // horizontal move
+  player.x += player.vx;
+  collide('x');
+
+  // vertical move
+  player.y += player.vy;
+  collide('y');
+
+  // hazards
+  if(hitHazard())resetPlayer();
+
+  // goal
+  const g=level.goal;
+  if(intersect(rect(player.x,player.y,player.w,player.h),
+               rect(g[0]*TILE,g[1]*TILE,g[2]*TILE,g[3]*TILE))){
+    alert(`${playerName} cleared the level! 🎉`);
+    resetPlayer();
+  }
+
+  // animation update
+  if(!player.onGround) player.frameTimer=0; // freeze air frame
+  else if(Math.abs(player.vx)>0.2){
+    player.frameTimer++;
+    if(player.frameTimer>6){
+      player.frame=(player.frame+1)%sprites.cat.run.length;
+      player.frameTimer=0;
+    }
+  }else{player.frame=0;}
+}
+function collide(axis){
+  player.onGround=false;
+  for(const p of level.platforms){
+    const r=rect(p[0]*TILE,p[1]*TILE,p[2]*TILE,p[3]*TILE);
+    if(intersect(rect(player.x,player.y,player.w,player.h),r)){
+      if(axis==='y'){
+        if(player.vy>0){
+          player.y=r.y-player.h;
+          player.vy=0;player.onGround=true;
+        }else if(player.vy<0){
+          player.y=r.y+r.h;
+          player.vy=0;
+        }
+      }else{
+        if(player.vx>0)player.x=r.x-player.w;
+        else if(player.vx<0)player.x=r.x+r.w;
+        player.vx=0;
+      }
+    }else if(axis==='y' && !player.onGround && player.vy>=0){
+      // little edge slack: if feet are within edgeSlack px of platform top
+      const feetY = player.y+player.h;
+      if(Math.abs(feetY - r.y)<level.edgeSlack &&
+         player.x+player.w>r.x && player.x<r.x+r.w){
+        player.y=r.y-player.h;player.vy=0;player.onGround=true;
+      }
+    }
+  }
+}
+function hitHazard(){
+  if(player.y>canvas.height) return true;
+  for(const c of level.cactus){
+    if(intersect(rect(player.x,player.y,player.w,player.h),
+                 rect(c[0]*TILE,c[1]*TILE,c[2]*TILE,c[3]*TILE)))
+      return true;
+  }
+  for(const w of level.water){
+    if(intersect(rect(player.x,player.y,player.w,player.h),
+                 rect(w[0]*TILE,w[1]*TILE,w[2]*TILE,w[3]*TILE)))
+      return true;
+  }
+  return false;
+}
+
+/*––––– rendering –––––*/
+function render(){
+  ctx.save();ctx.setTransform(scale,0,0,scale,0,0);
+  ctx.clearRect(0,0,canvas.width/scale,canvas.height/scale);
+
+  drawBackground();
+  drawPlatforms();
+  drawWater();
+  drawCactus();
+  drawGoal();
+  drawPlayer();
+
+  ctx.restore();
+}
+function drawBackground(){
+  ctx.fillStyle='#ffd34e';
+  ctx.beginPath();ctx.arc(TILE*55,TILE*3,TILE*2,0,Math.PI*2);ctx.fill();
+}
+function tileDraw(sprite,x,y,w,h){
+  for(let i=0;i<w;i++)
+    for(let j=0;j<h;j++)
+      ctx.drawImage(sprite,(x+i)*TILE,(y+j)*TILE);
+}
+function drawPlatforms(){
+  for(const p of level.platforms){
+    const type = p[1]>=15?'ground':'brick';
+    const spr  = sprites.tiles[type];
+    tileDraw(spr,p[0],p[1],p[2],p[3]);
+  }
+}
+function drawWater(){
+  for(const w of level.water)
+    tileDraw(sprites.tiles.water,w[0],w[1],w[2],w[3]);
+}
+function drawCactus(){
+  for(const c of level.cactus){
+    const img=sprites.tiles.cactus;
+    ctx.drawImage(img,c[0]*TILE,(c[1]-1)*TILE);
+  }
+}
+function drawGoal(){
+  const g=level.goal;
+  const x=g[0]*TILE,y=g[1]*TILE,w=g[2]*TILE,h=g[3]*TILE;
+  ctx.fillStyle='#d2691e';ctx.fillRect(x,y,w,h);
+  ctx.fillStyle='#b22222';
+  ctx.beginPath();ctx.moveTo(x-w*0.1,y);ctx.lineTo(x+w*0.5,y-h*0.6);ctx.lineTo(x+w*1.1,y);
+  ctx.closePath();ctx.fill();
+}
+function drawPlayer(){
+  const img = !player.onGround ? sprites.cat.jump :
+              Math.abs(player.vx)>0.2 ? sprites.cat.run[player.frame] :
+              sprites.cat.idle;
+  ctx.drawImage(img,player.x,player.y,player.w,player.h);
+}
+
+})(); // IIFE end
+</script>
+</body>
+</html>
